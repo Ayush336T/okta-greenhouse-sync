@@ -13,11 +13,16 @@ req = urllib.request.Request(url)
 req.add_header("Authorization", f"Basic {credentials}")
 
 with urllib.request.urlopen(req) as resp:
-    users = json.loads(resp.read())
-    if users:
-        user = users[0]
-        print(f"Found user: {user.get('first_name', '')} {user.get('last_name', '')}")
-        print(f"User ID: {user['id']}")
+    data = json.loads(resp.read())
+    print(f"Raw response: {json.dumps(data, indent=2)[:2000]}")
+    if isinstance(data, list) and data:
+        user = data[0]
+        print(f"\nFound user: {user.get('first_name', '')} {user.get('last_name', '')}")
+        print(f"User ID: {user.get('id')}")
+        print(f"Email: {email}")
+    elif isinstance(data, dict) and data.get("id"):
+        print(f"\nFound user: {data.get('first_name', '')} {data.get('last_name', '')}")
+        print(f"User ID: {data['id']}")
         print(f"Email: {email}")
     else:
         print(f"No user found for {email}")
