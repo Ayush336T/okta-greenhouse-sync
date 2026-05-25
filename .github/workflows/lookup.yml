@@ -1,0 +1,23 @@
+name: Lookup Greenhouse User
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: "Email to look up"
+        required: true
+        default: "sheetal.mohan@devrev.ai"
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lookup user
+        env:
+          GREENHOUSE_API_KEY: ${{ secrets.GREENHOUSE_API_KEY }}
+          LOOKUP_EMAIL: ${{ inputs.email }}
+        run: python lookup_user.py
