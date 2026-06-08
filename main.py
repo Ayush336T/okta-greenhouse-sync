@@ -139,10 +139,17 @@ def process_new_users(since):
                 user = get_user_details(user_id)
                 first_name = user.get("profile", {}).get("firstName", "")
                 last_name = user.get("profile", {}).get("lastName", "")
+                employment_status = user.get("profile", {}).get("employmentStatus", "")
             except Exception:
                 parts = display_name.split(" ", 1)
                 first_name = parts[0]
                 last_name = parts[1] if len(parts) > 1 else ""
+                employment_status = ""
+
+            # Skip interns and contractors
+            if employment_status in ("Internship", "Contractor"):
+                print(f"  {email} is {employment_status}, skipping Greenhouse creation")
+                continue
 
             try:
                 result = create_greenhouse_user(first_name, last_name, email)
