@@ -11,5 +11,5 @@ GREENHOUSE_ON_BEHALF_OF = os.environ.get("GREENHOUSE_ON_BEHALF_OF", "")
 # How far back to look for events (in minutes)
 LOOKBACK_MINUTES = int(os.environ.get("LOOKBACK_MINUTES", "30"))
 
-# Slack notifications
+# Slack notifications (set via SLACK_WEBHOOK_URL secret in GitHub Actions)
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
