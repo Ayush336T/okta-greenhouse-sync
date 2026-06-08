@@ -102,8 +102,16 @@ def disable_greenhouse_user(user_id):
 
 
 def process_new_users(since):
-    """Process user.lifecycle.create events from Okta."""
-    events = get_recent_okta_events("user.lifecycle.create", since)
+    """Process new user events from Okta (direct creation and BambooHR imports)."""
+    event_types = [
+        "user.lifecycle.create",
+        "user.import.new",
+        "user.lifecycle.activate",
+    ]
+    events = []
+    seen_emails = set()
+    for event_type in event_types:
+        events.extend(get_recent_okta_events(event_type, since))
     created = 0
 
     for event in events:
@@ -116,8 +124,9 @@ def process_new_users(since):
             email = target.get("alternateId")
             display_name = target.get("displayName", "")
 
-            if not email:
+            if not email or email in seen_emails:
                 continue
+            seen_emails.add(email)
 
             # Check if already exists in Greenhouse
             existing = find_greenhouse_user(email)
