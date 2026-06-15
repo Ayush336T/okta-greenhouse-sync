@@ -1,0 +1,29 @@
+name: Debug Okta Events for User
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: "User email to inspect"
+        required: true
+        default: "maxwell.paris@devrev.ai"
+      hours:
+        description: "Hours to look back"
+        required: true
+        default: "48"
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Inspect events
+        env:
+          OKTA_DOMAIN: ${{ secrets.OKTA_DOMAIN }}
+          OKTA_API_TOKEN: ${{ secrets.OKTA_API_TOKEN }}
+          DEBUG_EMAIL: ${{ inputs.email }}
+          DEBUG_HOURS: ${{ inputs.hours }}
+        run: python debug_user_events.py
