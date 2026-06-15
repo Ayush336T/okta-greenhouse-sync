@@ -1,0 +1,26 @@
+name: Manually Create Greenhouse User
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: "Email to create in Greenhouse (must exist in Okta)"
+        required: true
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Create user
+        env:
+          OKTA_DOMAIN: ${{ secrets.OKTA_DOMAIN }}
+          OKTA_API_TOKEN: ${{ secrets.OKTA_API_TOKEN }}
+          GREENHOUSE_API_KEY: ${{ secrets.GREENHOUSE_API_KEY }}
+          GREENHOUSE_ON_BEHALF_OF: ${{ secrets.GREENHOUSE_ON_BEHALF_OF }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CREATE_EMAIL: ${{ inputs.email }}
+        run: python create_user.py
