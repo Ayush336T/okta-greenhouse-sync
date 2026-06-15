@@ -24,21 +24,41 @@ def okta_list_active_users():
     """Page through all ACTIVE Okta users."""
     users = []
     url = f"https://{config.OKTA_DOMAIN}/api/v1/users?filter=" + urllib.parse.quote('status eq "ACTIVE"') + "&limit=200"
+    page = 0
     while url:
+        page += 1
         req = urllib.request.Request(url)
         req.add_header("Authorization", f"SSWS {config.OKTA_API_TOKEN}")
         req.add_header("Accept", "application/json")
         with urllib.request.urlopen(req) as resp:
-            users.extend(json.loads(resp.read()))
+            batch = json.loads(resp.read())
+            users.extend(batch)
             link = resp.headers.get("Link", "")
-        # parse pagination next link
+        print(f"  fetched page {page}: +{len(batch)} (total={len(users)})")
+        # parse pagination next link from Link header
         next_url = None
         for part in link.split(","):
+            part = part.strip()
             if 'rel="next"' in part:
-                next_url = part.split(";")[0].strip(" <>")
+                # format: <https://...>; rel="next"
+                start = part.find("<")
+                end = part.find(">")
+                if start != -1 and end != -1:
+                    next_url = part[start + 1:end]
                 break
         url = next_url
     return users
+
+
+def is_service_account(email, first_name, last_name):
+    """Detect bot/service accounts that should not go to Greenhouse."""
+    local = email.split("@")[0].lower()
+    if local.startswith("svc-") or local.startswith("svc_"):
+        return True
+    full_name = f"{first_name} {last_name}".lower()
+    if "(svc)" in full_name or full_name.endswith(" svc"):
+        return True
+    return False
 
 
 def greenhouse_request(method, path, body=None):
@@ -89,21 +109,31 @@ def main():
     print(f"  {len(users)} active users in Okta")
 
     eligible = []
+    skipped_svc = 0
+    skipped_no_email = 0
+    skipped_intern = 0
     for u in users:
         profile = u.get("profile", {})
         emp_status = profile.get("employmentStatus", "")
         email = profile.get("email", "").lower().strip()
+        first_name = profile.get("firstName", "")
+        last_name = profile.get("lastName", "")
         if not email:
+            skipped_no_email += 1
             continue
         if emp_status in ("Internship", "Contractor"):
+            skipped_intern += 1
+            continue
+        if is_service_account(email, first_name, last_name):
+            skipped_svc += 1
             continue
         eligible.append({
             "email": email,
-            "first_name": profile.get("firstName", ""),
-            "last_name": profile.get("lastName", ""),
+            "first_name": first_name,
+            "last_name": last_name,
             "employment_status": emp_status,
         })
-    print(f"  {len(eligible)} eligible (excluding interns/contractors)")
+    print(f"  {len(eligible)} eligible (skipped: {skipped_intern} interns/contractors, {skipped_svc} service accounts, {skipped_no_email} no email)")
 
     created = 0
     skipped_existing = 0
