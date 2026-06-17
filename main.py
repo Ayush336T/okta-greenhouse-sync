@@ -101,6 +101,12 @@ def disable_greenhouse_user(user_id):
     return greenhouse_request("PATCH", f"users/{user_id}", body)
 
 
+def is_service_account(email, display_name=""):
+    e = (email or "").lower()
+    n = (display_name or "").lower()
+    return e.startswith("svc-") or e.startswith("svc_") or "(svc)" in n
+
+
 def process_new_users(since):
     """Process new user events from Okta (direct creation and BambooHR imports)."""
     event_types = [
@@ -127,6 +133,10 @@ def process_new_users(since):
             if not email or email in seen_emails:
                 continue
             seen_emails.add(email)
+
+            if is_service_account(email, display_name):
+                print(f"  {email} is a service account, skipping")
+                continue
 
             # Check if already exists in Greenhouse
             existing = find_greenhouse_user(email)
