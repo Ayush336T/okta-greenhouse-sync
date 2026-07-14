@@ -106,7 +106,12 @@ def greenhouse_list_all_user_emails():
             if primary:
                 emails.add(primary)
             for addr in u.get("emails", []) or []:
-                e = (addr.get("email") or "").lower().strip()
+                if isinstance(addr, dict):
+                    e = (addr.get("email") or "").lower().strip()
+                elif isinstance(addr, str):
+                    e = addr.lower().strip()
+                else:
+                    e = ""
                 if e:
                     emails.add(e)
         print(f"  fetched Greenhouse users page {page}: +{len(batch)} (total emails={len(emails)})")
