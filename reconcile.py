@@ -61,7 +61,7 @@ def is_service_account(email, first_name, last_name):
     return False
 
 
-def greenhouse_request(method, path, body=None):
+def greenhouse_request(method, path, body=None, return_response=False):
     url = f"https://harvest.greenhouse.io/v1/{path}"
     creds = b64encode(f"{config.GREENHOUSE_API_KEY}:".encode()).decode()
     data = json.dumps(body).encode() if body else None
@@ -71,22 +71,57 @@ def greenhouse_request(method, path, body=None):
     if config.GREENHOUSE_ON_BEHALF_OF:
         req.add_header("On-Behalf-Of", config.GREENHOUSE_ON_BEHALF_OF)
     try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read())
+        resp = urllib.request.urlopen(req)
+        body_out = json.loads(resp.read())
+        if return_response:
+            return body_out, resp
+        return body_out
     except urllib.error.HTTPError as e:
         raise Exception(f"Greenhouse API error {e.code}: {e.read().decode()}")
 
 
-def find_greenhouse_user(email):
-    try:
-        users = greenhouse_request("GET", f"users?email={urllib.parse.quote(email)}")
-    except Exception:
-        return None
-    if isinstance(users, list) and users:
-        return users[0]
-    if isinstance(users, dict) and users.get("id"):
-        return users
-    return None
+def greenhouse_list_all_user_emails():
+    """Fetch every Greenhouse user (paginated) and return a set of lowercased emails.
+
+    The per-email lookup GET /v1/users?email=X was silently missing existing users,
+    causing reconcile to attempt duplicate creates that fail with 422 'email taken'.
+    Fetching the full list once and matching locally sidesteps that.
+    """
+    emails = set()
+    url = "https://harvest.greenhouse.io/v1/users?per_page=500&page=1"
+    creds = b64encode(f"{config.GREENHOUSE_API_KEY}:".encode()).decode()
+    page = 0
+    while url:
+        page += 1
+        req = urllib.request.Request(url)
+        req.add_header("Authorization", f"Basic {creds}")
+        req.add_header("Accept", "application/json")
+        if config.GREENHOUSE_ON_BEHALF_OF:
+            req.add_header("On-Behalf-Of", config.GREENHOUSE_ON_BEHALF_OF)
+        with urllib.request.urlopen(req) as resp:
+            batch = json.loads(resp.read())
+            link = resp.headers.get("Link", "")
+        for u in batch:
+            primary = (u.get("primary_email_address") or "").lower().strip()
+            if primary:
+                emails.add(primary)
+            for addr in u.get("emails", []) or []:
+                e = (addr.get("email") or "").lower().strip()
+                if e:
+                    emails.add(e)
+        print(f"  fetched Greenhouse users page {page}: +{len(batch)} (total emails={len(emails)})")
+        # parse Link header for rel="next"
+        next_url = None
+        for part in link.split(","):
+            part = part.strip()
+            if 'rel="next"' in part:
+                start = part.find("<")
+                end = part.find(">")
+                if start != -1 and end != -1:
+                    next_url = part[start + 1:end]
+                break
+        url = next_url
+    return emails
 
 
 def slack(message):
@@ -135,6 +170,10 @@ def main():
         })
     print(f"  {len(eligible)} eligible (skipped: {skipped_intern} interns/contractors, {skipped_svc} service accounts, {skipped_no_email} no email)")
 
+    print("Fetching all Greenhouse users (paginated)...")
+    gh_emails = greenhouse_list_all_user_emails()
+    print(f"  {len(gh_emails)} unique emails in Greenhouse")
+
     created = 0
     skipped_existing = 0
     errors = 0
@@ -142,8 +181,7 @@ def main():
 
     for u in eligible:
         email = u["email"]
-        existing = find_greenhouse_user(email)
-        if existing:
+        if email in gh_emails:
             skipped_existing += 1
             continue
         missing.append(u)
