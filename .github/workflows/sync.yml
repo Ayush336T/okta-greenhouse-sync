@@ -6,9 +6,15 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
+# Prevent overlapping scheduled runs; let the running one finish.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
