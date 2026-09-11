@@ -33,18 +33,26 @@ def okta_list_active_users():
         with urllib.request.urlopen(req) as resp:
             batch = json.loads(resp.read())
             users.extend(batch)
-            link = resp.headers.get("Link", "")
+            # Okta returns MULTIPLE Link headers (rel="self" and rel="next")
+            # as separate header lines. resp.headers.get() only returns the
+            # first (usually "self"), so pagination silently stopped after
+            # page 1 — capping the reconcile at 200 users. Use get_all() to
+            # collect every Link header.
+            link_headers = resp.headers.get_all("Link") or []
         print(f"  fetched page {page}: +{len(batch)} (total={len(users)})")
-        # parse pagination next link from Link header
+        # parse pagination next link from all Link headers
         next_url = None
-        for part in link.split(","):
-            part = part.strip()
-            if 'rel="next"' in part:
-                # format: <https://...>; rel="next"
-                start = part.find("<")
-                end = part.find(">")
-                if start != -1 and end != -1:
-                    next_url = part[start + 1:end]
+        for header in link_headers:
+            for part in header.split(","):
+                part = part.strip()
+                if 'rel="next"' in part:
+                    # format: <https://...>; rel="next"
+                    start = part.find("<")
+                    end = part.find(">")
+                    if start != -1 and end != -1:
+                        next_url = part[start + 1:end]
+                    break
+            if next_url:
                 break
         url = next_url
     return users
