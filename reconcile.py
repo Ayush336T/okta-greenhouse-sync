@@ -59,14 +59,44 @@ def okta_list_active_users():
 
 
 def is_service_account(email, first_name, last_name):
-    """Detect bot/service accounts that should not go to Greenhouse."""
+    """Detect bot/service/role accounts that should not go to Greenhouse."""
     local = email.split("@")[0].lower()
+    # Explicit service prefixes
     if local.startswith("svc-") or local.startswith("svc_"):
+        return True
+    # Board-member / advisor prefixes (b-*, advisorN)
+    if local.startswith("b-") or local.startswith("advisor"):
+        return True
+    # Automation/placeholder patterns (auto-userN)
+    if local.startswith("auto-user") or local.startswith("auto_user"):
+        return True
+    # Bot / sync / support / role-mailbox suffixes and substrings
+    bot_markers = ("-bot", "_bot", "-sync", "_sync", "-support", "_support")
+    if local.endswith(bot_markers) or any(m in local for m in bot_markers):
+        return True
+    # Known role mailboxes / non-human accounts by exact local part
+    role_mailboxes = {
+        "keyring", "advocacy", "devrevuteam", "meetcomputer",
+        "outreach.connect", "talent-review", "figma-bot",
+    }
+    if local in role_mailboxes:
         return True
     full_name = f"{first_name} {last_name}".lower()
     if "(svc)" in full_name or full_name.endswith(" svc"):
         return True
     return False
+
+
+def is_eligible_employee(email, emp_status):
+    """Only real DevRev employees (Full-Time / blank-Okta-managed) belong in
+    Greenhouse. Excludes board members, advisors, and external/vendor emails."""
+    # Must be a DevRev-domain mailbox — external/vendor emails are not employees
+    if not email.endswith("@devrev.ai"):
+        return False
+    # Exclude non-employee relationship types
+    if emp_status in ("Board Member", "Advisor", "Investor"):
+        return False
+    return True
 
 
 def greenhouse_request(method, path, body=None, return_response=False):
@@ -160,6 +190,7 @@ def main():
     skipped_svc = 0
     skipped_no_email = 0
     skipped_intern = 0
+    skipped_ineligible = 0
     for u in users:
         profile = u.get("profile", {})
         emp_status = profile.get("employmentStatus", "")
@@ -175,13 +206,16 @@ def main():
         if is_service_account(email, first_name, last_name):
             skipped_svc += 1
             continue
+        if not is_eligible_employee(email, emp_status):
+            skipped_ineligible += 1
+            continue
         eligible.append({
             "email": email,
             "first_name": first_name,
             "last_name": last_name,
             "employment_status": emp_status,
         })
-    print(f"  {len(eligible)} eligible (skipped: {skipped_intern} interns/contractors, {skipped_svc} service accounts, {skipped_no_email} no email)")
+    print(f"  {len(eligible)} eligible (skipped: {skipped_intern} interns/contractors, {skipped_svc} service accounts, {skipped_ineligible} board/advisor/external, {skipped_no_email} no email)")
 
     print("Fetching all Greenhouse users (paginated)...")
     gh_emails = greenhouse_list_all_user_emails()
