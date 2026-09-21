@@ -23,8 +23,9 @@ jobs:
         env:
           OKTA_DOMAIN: ${{ secrets.OKTA_DOMAIN }}
           OKTA_API_TOKEN: ${{ secrets.OKTA_API_TOKEN }}
-          GREENHOUSE_API_KEY: ${{ secrets.GREENHOUSE_API_KEY }}
-          GREENHOUSE_ON_BEHALF_OF: ${{ secrets.GREENHOUSE_ON_BEHALF_OF }}
+          GREENHOUSE_CLIENT_ID: ${{ secrets.GREENHOUSE_CLIENT_ID }}
+          GREENHOUSE_CLIENT_SECRET: ${{ secrets.GREENHOUSE_CLIENT_SECRET }}
+          GREENHOUSE_SUB_USER_ID: ${{ secrets.GREENHOUSE_SUB_USER_ID }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: python reconcile.py

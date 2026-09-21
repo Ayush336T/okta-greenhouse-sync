@@ -1,10 +1,10 @@
 import json
 import urllib.request
 import urllib.parse
-from base64 import b64encode
 from datetime import datetime, timezone, timedelta
 
 import config
+import greenhouse
 
 
 def okta_request(path, params=None):
@@ -19,26 +19,6 @@ def okta_request(path, params=None):
 
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
-
-
-def greenhouse_request(method, path, body=None):
-    """Make a request to the Greenhouse Harvest API."""
-    url = f"https://harvest.greenhouse.io/v1/{path}"
-    credentials = b64encode(f"{config.GREENHOUSE_API_KEY}:".encode()).decode()
-
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Basic {credentials}")
-    req.add_header("Content-Type", "application/json")
-    if config.GREENHOUSE_ON_BEHALF_OF:
-        req.add_header("On-Behalf-Of", config.GREENHOUSE_ON_BEHALF_OF)
-
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode()
-        raise Exception(f"Greenhouse API error {e.code}: {error_body}")
 
 
 def send_slack_notification(message):
@@ -77,7 +57,7 @@ def get_user_details(user_id):
 def find_greenhouse_user(email):
     """Find a user in Greenhouse by email."""
     try:
-        users = greenhouse_request("GET", f"users?email={urllib.parse.quote(email)}")
+        users = greenhouse.request("GET", f"users?primary_email={urllib.parse.quote(email)}")
         if users:
             return users[0]
     except Exception:
@@ -90,15 +70,14 @@ def create_greenhouse_user(first_name, last_name, email):
     body = {
         "first_name": first_name,
         "last_name": last_name,
-        "email": email,
+        "primary_email": email,
     }
-    return greenhouse_request("POST", "users", body)
+    return greenhouse.request("POST", "users", body)
 
 
 def disable_greenhouse_user(user_id):
-    """Disable a user in Greenhouse."""
-    body = {"disabled": True}
-    return greenhouse_request("PATCH", f"users/{user_id}", body)
+    """Deactivate a user in Greenhouse."""
+    return greenhouse.request("POST", f"users/{user_id}/deactivate")
 
 
 def is_service_account(email, display_name=""):
@@ -198,8 +177,8 @@ def process_deactivated_users(since):
                 print(f"  {email} not found in Greenhouse, skipping")
                 continue
 
-            if gh_user.get("disabled"):
-                print(f"  {email} already disabled in Greenhouse, skipping")
+            if gh_user.get("deactivated"):
+                print(f"  {email} already deactivated in Greenhouse, skipping")
                 continue
 
             try:
