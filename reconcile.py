@@ -2,9 +2,9 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from base64 import b64encode
 
 import config
+import greenhouse
 
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
@@ -99,48 +99,24 @@ def is_eligible_employee(email, emp_status):
     return True
 
 
-def greenhouse_request(method, path, body=None, return_response=False):
-    url = f"https://harvest.greenhouse.io/v1/{path}"
-    creds = b64encode(f"{config.GREENHOUSE_API_KEY}:".encode()).decode()
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Basic {creds}")
-    req.add_header("Content-Type", "application/json")
-    if config.GREENHOUSE_ON_BEHALF_OF:
-        req.add_header("On-Behalf-Of", config.GREENHOUSE_ON_BEHALF_OF)
-    try:
-        resp = urllib.request.urlopen(req)
-        body_out = json.loads(resp.read())
-        if return_response:
-            return body_out, resp
-        return body_out
-    except urllib.error.HTTPError as e:
-        raise Exception(f"Greenhouse API error {e.code}: {e.read().decode()}")
-
-
 def greenhouse_list_all_user_emails():
     """Fetch every Greenhouse user (paginated) and return a set of lowercased emails.
 
-    The per-email lookup GET /v1/users?email=X was silently missing existing users,
-    causing reconcile to attempt duplicate creates that fail with 422 'email taken'.
-    Fetching the full list once and matching locally sidesteps that.
+    The per-email lookup GET /v3/users?primary_email=X returns a single user; to avoid
+    duplicate-create races we fetch the full list once and match locally.
+    v3 uses cursor-based pagination: the first request may set per_page, but once a
+    cursor appears in the Link rel="next" URL it must be the ONLY query param — so we
+    just follow the returned URL verbatim.
     """
     emails = set()
-    url = "https://harvest.greenhouse.io/v1/users?per_page=500&page=1"
-    creds = b64encode(f"{config.GREENHOUSE_API_KEY}:".encode()).decode()
+    url = "users?per_page=500"
     page = 0
     while url:
         page += 1
-        req = urllib.request.Request(url)
-        req.add_header("Authorization", f"Basic {creds}")
-        req.add_header("Accept", "application/json")
-        if config.GREENHOUSE_ON_BEHALF_OF:
-            req.add_header("On-Behalf-Of", config.GREENHOUSE_ON_BEHALF_OF)
-        with urllib.request.urlopen(req) as resp:
-            batch = json.loads(resp.read())
-            link = resp.headers.get("Link", "")
-        for u in batch:
-            primary = (u.get("primary_email_address") or "").lower().strip()
+        batch, resp = greenhouse.request("GET", url, return_response=True)
+        link = resp.headers.get("Link", "")
+        for u in (batch or []):
+            primary = (u.get("primary_email") or "").lower().strip()
             if primary:
                 emails.add(primary)
             for addr in u.get("emails", []) or []:
@@ -152,8 +128,8 @@ def greenhouse_list_all_user_emails():
                     e = ""
                 if e:
                     emails.add(e)
-        print(f"  fetched Greenhouse users page {page}: +{len(batch)} (total emails={len(emails)})")
-        # parse Link header for rel="next"
+        print(f"  fetched Greenhouse users page {page}: +{len(batch or [])} (total emails={len(emails)})")
+        # parse Link header for rel="next" — follow the full URL verbatim (cursor is opaque)
         next_url = None
         for part in link.split(","):
             part = part.strip()
@@ -240,10 +216,10 @@ def main():
         if DRY_RUN:
             continue
         try:
-            greenhouse_request("POST", "users", {
+            greenhouse.request("POST", "users", {
                 "first_name": u["first_name"],
                 "last_name": u["last_name"],
-                "email": email,
+                "primary_email": email,
             })
             created += 1
             slack(f":white_check_mark: Reconcile created Greenhouse user: `{email}` ({u['first_name']} {u['last_name']})")
